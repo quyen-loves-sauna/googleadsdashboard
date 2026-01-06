@@ -634,12 +634,17 @@ def main():
             
             # Campaign filter
             st.markdown("---")
-            campaign_filter = st.text_input(
-                "Filter by Campaign Name (Optional)",
-                placeholder="Type exact campaign name...",
-                help="Enter the exact campaign name to filter results",
-                key="agg_campaign_filter"
-            )
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                campaign_filter = st.text_input(
+                    "Filter by Campaign Name (Optional)",
+                    placeholder="Type campaign name...",
+                    help="Filter campaigns by name",
+                    key="agg_campaign_filter"
+                )
+            with col2:
+                st.write("")  # Spacing
+                exact_match = st.checkbox("Exact match", value=False, key="agg_exact_match")
             
             if st.button("📥 Load Data", key="load_agg_data", type="primary"):
                 with st.spinner("Fetching data from Google Ads..."):
@@ -718,16 +723,22 @@ def main():
                 
                 # Filter by campaign if specified
                 if campaign_filter and campaign_filter.strip():
-                    # Filter current data
-                    current_df = current_df[current_df['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
-                    if not comparison_df.empty:
-                        comparison_df = comparison_df[comparison_df['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
+                    # Use exact or partial matching based on checkbox
+                    if exact_match:
+                        current_df = current_df[current_df['campaign_name'] == campaign_filter.strip()]
+                        if not comparison_df.empty:
+                            comparison_df = comparison_df[comparison_df['campaign_name'] == campaign_filter.strip()]
+                    else:
+                        current_df = current_df[current_df['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
+                        if not comparison_df.empty:
+                            comparison_df = comparison_df[comparison_df['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
                     
                     if current_df.empty:
                         st.warning(f"No campaigns found matching '{campaign_filter}'")
                         st.stop()
                     else:
-                        st.info(f"Showing data for campaigns matching: '{campaign_filter}'")
+                        match_type = "exactly matching" if exact_match else "containing"
+                        st.info(f"Showing data for campaigns {match_type}: '{campaign_filter}' ({len(current_df)} campaign(s))")
                 
                 # Calculate totals and changes
                 if not comparison_df.empty:
@@ -851,7 +862,10 @@ def main():
                     
                     # Filter daily data by campaign if needed
                     if campaign_filter and campaign_filter.strip():
-                        daily_data = daily_data[daily_data['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
+                        if exact_match:
+                            daily_data = daily_data[daily_data['campaign_name'] == campaign_filter.strip()]
+                        else:
+                            daily_data = daily_data[daily_data['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
                     
                     if not daily_data.empty:
                         # Metric selector
@@ -925,12 +939,17 @@ def main():
             
             # Campaign filter
             st.markdown("---")
-            campaign_filter_camp = st.text_input(
-                "Filter by Campaign Name (Optional)",
-                placeholder="Type campaign name to filter...",
-                help="Filter campaigns by name (partial match)",
-                key="camp_campaign_filter"
-            )
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                campaign_filter_camp = st.text_input(
+                    "Filter by Campaign Name (Optional)",
+                    placeholder="Type campaign name...",
+                    help="Filter campaigns by name",
+                    key="camp_campaign_filter"
+                )
+            with col2:
+                st.write("")  # Spacing
+                exact_match_camp = st.checkbox("Exact match", value=False, key="camp_exact_match")
             
             if st.button("📥 Load Campaign Data", key="load_camp_data", type="primary"):
                 with st.spinner("Fetching campaign data..."):
@@ -1017,12 +1036,16 @@ def main():
                 
                 # Apply campaign filter
                 if campaign_filter_camp and campaign_filter_camp.strip():
-                    df_display = df_display[df_display['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
+                    if exact_match_camp:
+                        df_display = df_display[df_display['campaign_name'] == campaign_filter_camp.strip()]
+                    else:
+                        df_display = df_display[df_display['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
                     
                     if df_display.empty:
                         st.warning(f"No campaigns found matching '{campaign_filter_camp}'")
                     else:
-                        st.info(f"Showing {len(df_display)} campaign(s) matching: '{campaign_filter_camp}'")
+                        match_type = "exactly matching" if exact_match_camp else "containing"
+                        st.info(f"Showing {len(df_display)} campaign(s) {match_type}: '{campaign_filter_camp}'")
                 
                 if not df_display.empty:
                     # Format the display
@@ -1062,7 +1085,10 @@ def main():
                         
                         # Filter by campaign if needed
                         if campaign_filter_camp and campaign_filter_camp.strip():
-                            daily_data_camp = daily_data_camp[daily_data_camp['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
+                            if exact_match_camp:
+                                daily_data_camp = daily_data_camp[daily_data_camp['campaign_name'] == campaign_filter_camp.strip()]
+                            else:
+                                daily_data_camp = daily_data_camp[daily_data_camp['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
                         
                         if not daily_data_camp.empty:
                             # Metric selector
@@ -1129,6 +1155,21 @@ def main():
                 with col2:
                     compare_end_prod = st.date_input("Compare End Date", key="prod_comp_end")
             
+            # Filters
+            st.markdown("---")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                campaign_filter_prod_load = st.text_input(
+                    "Filter by Campaign (Optional - applies before loading)",
+                    placeholder="Type campaign name...",
+                    help="Filter products by campaign before aggregation",
+                    key="prod_campaign_filter_load"
+                )
+            with col2:
+                st.write("")  # Spacing
+                exact_match_prod_load = st.checkbox("Exact match", value=False, key="prod_exact_match_load")
+            
             if st.button("📥 Load Product Data", key="load_prod_data", type="primary"):
                 with st.spinner("Fetching product data..."):
                     product_df = fetch_product_performance(
@@ -1140,6 +1181,20 @@ def main():
                     
                     if not product_df.empty:
                         product_df = process_dataframe(product_df)
+                        
+                        # Filter by campaign BEFORE aggregation if specified
+                        if campaign_filter_prod_load and campaign_filter_prod_load.strip():
+                            if exact_match_prod_load:
+                                product_df = product_df[product_df['campaign_name'] == campaign_filter_prod_load.strip()]
+                            else:
+                                product_df = product_df[product_df['campaign_name'].str.contains(campaign_filter_prod_load, case=False, na=False)]
+                            
+                            if product_df.empty:
+                                st.warning(f"No products found for campaign matching '{campaign_filter_prod_load}'")
+                                st.stop()
+                            else:
+                                match_type = "exactly matching" if exact_match_prod_load else "containing"
+                                st.info(f"Loaded products from campaigns {match_type}: '{campaign_filter_prod_load}'")
                         
                         # Aggregate by product (sum across campaigns)
                         agg_product_df = product_df.groupby('product_title').agg({
@@ -1163,20 +1218,16 @@ def main():
             if st.session_state.product_data is not None and not st.session_state.product_data.empty:
                 st.markdown("---")
                 
-                # Filters
-                col1, col2, col3, col4 = st.columns(4)
+                # Filters for display
+                col1, col2, col3 = st.columns(3)
                 
                 with col1:
                     product_title_filter = st.text_input("Filter by Product Title", key="prod_title_filter")
                 
                 with col2:
-                    campaign_filter_prod = st.text_input("Filter by Campaign", key="prod_campaign_filter",
-                                                        help="Filter products by campaign name")
-                
-                with col3:
                     min_spend = st.number_input("Min Spend ($)", min_value=0.0, value=0.0, key="min_spend")
                 
-                with col4:
+                with col3:
                     min_aov = st.number_input("Min AOV ($)", min_value=0.0, value=0.0, key="min_aov")
                 
                 # Apply filters
