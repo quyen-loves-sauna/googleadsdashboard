@@ -340,11 +340,11 @@ def fetch_change_history(client, customer_id, start_date, end_date):
         data = []
         for row in response:
             # Determine change type from resource_type and resource_name
-            resource_type = row.change_event.change_resource_type
-            resource_name = row.change_event.change_resource_name.lower()
+            resource_type_str = str(row.change_event.change_resource_type)
+            resource_name = str(row.change_event.change_resource_name).lower()
             
             # Check if it's a budget or bid strategy change
-            is_budget = 'BUDGET' in resource_type or 'budget' in resource_name
+            is_budget = 'BUDGET' in resource_type_str.upper() or 'budget' in resource_name
             is_bid_strategy = any(keyword in resource_name for keyword in [
                 'bidding_strategy', 'bid_strategy', 'maximize', 'target_cpa', 
                 'target_roas', 'manual_cpc', 'manual_cpm'
@@ -358,11 +358,11 @@ def fetch_change_history(client, customer_id, start_date, end_date):
             
             change_data = {
                 'change_datetime': row.change_event.change_date_time,
-                'resource_type': resource_type,
-                'operation': row.change_event.resource_change_operation,
+                'resource_type': resource_type_str,
+                'operation': str(row.change_event.resource_change_operation),
                 'resource_name': row.change_event.change_resource_name,
                 'campaign_name': row.campaign.name if hasattr(row, 'campaign') and hasattr(row.campaign, 'name') else 'Unknown',
-                'campaign_id': row.campaign.id if hasattr(row, 'campaign') and hasattr(row.campaign, 'id') else '',
+                'campaign_id': str(row.campaign.id) if hasattr(row, 'campaign') and hasattr(row.campaign, 'id') else '',
                 'change_type': change_type
             }
             
