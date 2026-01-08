@@ -325,8 +325,6 @@ def fetch_change_history(client, customer_id, start_date, end_date):
                 change_event.change_resource_type,
                 change_event.resource_change_operation,
                 change_event.change_resource_name,
-                change_event.old_resource,
-                change_event.new_resource,
                 campaign.name,
                 campaign.id
             FROM change_event
@@ -341,29 +339,32 @@ def fetch_change_history(client, customer_id, start_date, end_date):
         
         data = []
         for row in response:
+            # Determine change type from resource_type and resource_name
+            resource_type = row.change_event.change_resource_type
+            resource_name = row.change_event.change_resource_name.lower()
+            
+            # Check if it's a budget or bid strategy change
+            is_budget = 'BUDGET' in resource_type or 'budget' in resource_name
+            is_bid_strategy = any(keyword in resource_name for keyword in [
+                'bidding_strategy', 'bid_strategy', 'maximize', 'target_cpa', 
+                'target_roas', 'manual_cpc', 'manual_cpm'
+            ])
+            
+            # Only include budget or bid strategy changes
+            if not (is_budget or is_bid_strategy):
+                continue
+            
+            change_type = 'Budget Change' if is_budget else 'Bid Strategy Change'
+            
             change_data = {
                 'change_datetime': row.change_event.change_date_time,
-                'resource_type': row.change_event.change_resource_type,
+                'resource_type': resource_type,
                 'operation': row.change_event.resource_change_operation,
                 'resource_name': row.change_event.change_resource_name,
                 'campaign_name': row.campaign.name if hasattr(row, 'campaign') and hasattr(row.campaign, 'name') else 'Unknown',
                 'campaign_id': row.campaign.id if hasattr(row, 'campaign') and hasattr(row.campaign, 'id') else '',
+                'change_type': change_type
             }
-            
-            # Try to extract old and new values if available
-            try:
-                if hasattr(row.change_event, 'old_resource'):
-                    change_data['old_resource'] = str(row.change_event.old_resource)
-                else:
-                    change_data['old_resource'] = ''
-                    
-                if hasattr(row.change_event, 'new_resource'):
-                    change_data['new_resource'] = str(row.change_event.new_resource)
-                else:
-                    change_data['new_resource'] = ''
-            except:
-                change_data['old_resource'] = ''
-                change_data['new_resource'] = ''
             
             data.append(change_data)
         
@@ -374,28 +375,6 @@ def fetch_change_history(client, customer_id, start_date, end_date):
             df['change_datetime'] = pd.to_datetime(df['change_datetime'])
             df['date'] = df['change_datetime'].dt.date
             df['time'] = df['change_datetime'].dt.strftime('%H:%M:%S')
-            
-            # Filter for budget and bid strategy changes only
-            df['is_budget_change'] = df['old_resource'].str.contains('budget|amount_micros', case=False, na=False) | \
-                                     df['new_resource'].str.contains('budget|amount_micros', case=False, na=False) | \
-                                     df['resource_type'].str.contains('BUDGET', case=False, na=False)
-            
-            df['is_bid_strategy_change'] = df['old_resource'].str.contains('bidding_strategy|maximize|target_cpa|target_roas|manual', case=False, na=False) | \
-                                           df['new_resource'].str.contains('bidding_strategy|maximize|target_cpa|target_roas|manual', case=False, na=False)
-            
-            # Keep only budget or bid strategy changes
-            df = df[df['is_budget_change'] | df['is_bid_strategy_change']]
-            
-            # Determine change type
-            def determine_change_type(row):
-                if row['is_budget_change']:
-                    return 'Budget Change'
-                elif row['is_bid_strategy_change']:
-                    return 'Bid Strategy Change'
-                else:
-                    return 'Other'
-            
-            df['change_type'] = df.apply(determine_change_type, axis=1)
             
             # Clean up operation names
             df['operation'] = df['operation'].replace({
