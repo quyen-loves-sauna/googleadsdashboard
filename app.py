@@ -81,6 +81,12 @@ if 'daily_data_camp' not in st.session_state:
     st.session_state.daily_data_camp = None
 if 'change_history_data' not in st.session_state:
     st.session_state.change_history_data = None
+if 'daily_data_comparison' not in st.session_state:
+    st.session_state.daily_data_comparison = None
+if 'daily_data_camp_comparison' not in st.session_state:
+    st.session_state.daily_data_camp_comparison = None
+if 'compare_option_camp' not in st.session_state:
+    st.session_state.compare_option_camp = 'None'
 
 # Helper Functions
 def create_google_ads_client(developer_token, client_id, client_secret, refresh_token, login_customer_id=None):
@@ -592,6 +598,237 @@ def create_time_series_chart(df, metric, metric_label):
     
     return fig
 
+def create_multi_metric_chart(df_current, df_comparison, selected_metrics, metric_labels, show_comparison=False):
+    """
+    Create chart with up to 3 metrics and optional comparison period
+    
+    Parameters:
+    - df_current: DataFrame with current period daily data
+    - df_comparison: DataFrame with comparison period daily data (can be None)
+    - selected_metrics: List of up to 3 metric column names
+    - metric_labels: Dict mapping metric names to display labels
+    - show_comparison: Whether to show comparison period
+    """
+    
+    fig = go.Figure()
+    
+    # Colors for current period metrics
+    colors = ['#1e88e5', '#43a047', '#e53935']  # Blue, Green, Red
+    # Colors for comparison period (lighter versions)
+    comparison_colors = ['#90caf9', '#81c784', '#e57373']
+    
+    # Add current period metrics
+    for idx, metric in enumerate(selected_metrics):
+        # Aggregate daily data
+        daily_agg = df_current.groupby('date')[metric].sum().reset_index()
+        
+        # Determine which y-axis to use
+        yaxis_ref = 'y' if idx == 0 else f'y{idx+1}'
+        
+        fig.add_trace(go.Scatter(
+            x=daily_agg['date'],
+            y=daily_agg[metric],
+            mode='lines+markers',
+            name=f"{metric_labels[metric]}",
+            line=dict(color=colors[idx], width=3),
+            marker=dict(size=6),
+            yaxis=yaxis_ref,
+            showlegend=True
+        ))
+    
+    # Add comparison period metrics if requested and available
+    if show_comparison and df_comparison is not None and not df_comparison.empty:
+        for idx, metric in enumerate(selected_metrics):
+            daily_agg_comp = df_comparison.groupby('date')[metric].sum().reset_index()
+            
+            yaxis_ref = 'y' if idx == 0 else f'y{idx+1}'
+            
+            fig.add_trace(go.Scatter(
+                x=daily_agg_comp['date'],
+                y=daily_agg_comp[metric],
+                mode='lines',
+                name=f"{metric_labels[metric]} (Comparison)",
+                line=dict(color=comparison_colors[idx], width=2, dash='dash'),
+                yaxis=yaxis_ref,
+                showlegend=True,
+                opacity=0.7
+            ))
+    
+    # Configure layout with multiple y-axes
+    layout_config = {
+        'title': dict(
+            text="Performance Over Time",
+            font=dict(size=20, color='#111827')
+        ),
+        'xaxis': dict(
+            title="Date",
+            showgrid=True,
+            gridcolor='rgba(200, 200, 200, 0.2)'
+        ),
+        'yaxis': dict(
+            title=metric_labels[selected_metrics[0]],
+            showgrid=True,
+            gridcolor='rgba(200, 200, 200, 0.2)',
+            side='left'
+        ),
+        'plot_bgcolor': 'white',
+        'paper_bgcolor': 'white',
+        'hovermode': 'x unified',
+        'height': 500,
+        'legend': dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.25,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11)
+        ),
+        'margin': dict(l=60, r=60, t=80, b=100)
+    }
+    
+    # Add secondary y-axes for additional metrics
+    if len(selected_metrics) > 1:
+        layout_config['yaxis2'] = dict(
+            title=metric_labels[selected_metrics[1]],
+            overlaying='y',
+            side='right',
+            showgrid=False
+        )
+    
+    if len(selected_metrics) > 2:
+        layout_config['yaxis3'] = dict(
+            title=metric_labels[selected_metrics[2]],
+            overlaying='y',
+            side='right',
+            anchor='free',
+            position=0.97,
+            showgrid=False
+        )
+    
+    fig.update_layout(**layout_config)
+    
+    return fig
+
+def extract_percentage_change(details_str):
+    """Extract percentage change from change details string"""
+    try:
+        # Look for patterns like "from X to Y"
+        match = re.search(r'from ([\d.]+)\D* to ([\d.]+)', details_str)
+        if match:
+            old_val = float(match.group(1))
+            new_val = float(match.group(2))
+            if old_val > 0:
+                pct_change = abs((new_val - old_val) / old_val * 100)
+                return pct_change
+    except:
+        pass
+    return 0
+
+def add_change_annotations(fig, df_changes, campaign_name, date_range, min_budget_pct=0, min_bid_pct=0):
+    """
+    Add change markers and annotations to campaign performance chart
+    
+    Parameters:
+    - fig: Plotly figure object
+    - df_changes: Change history DataFrame
+    - campaign_name: Name of campaign to show annotations for
+    - date_range: Tuple of (start_date, end_date) for filtering
+    - min_budget_pct: Minimum budget change % to show
+    - min_bid_pct: Minimum bid strategy change % to show
+    """
+    
+    if df_changes is None or df_changes.empty:
+        return fig
+    
+    # Filter changes for this campaign and date range
+    campaign_changes = df_changes[
+        (df_changes['campaign_name'] == campaign_name) &
+        (df_changes['date'] >= date_range[0]) &
+        (df_changes['date'] <= date_range[1])
+    ].copy()
+    
+    if campaign_changes.empty:
+        return fig
+    
+    shapes = []
+    annotations = []
+    
+    for idx, change in campaign_changes.iterrows():
+        change_date = change['date']
+        change_type = change['change_type']
+        details = change['change_details']
+        
+        # Determine if we should show this annotation
+        show_annotation = False
+        color = '#6b7280'  # Default gray
+        
+        if change_type == 'Budget Change':
+            pct_change = extract_percentage_change(details)
+            # Always show if budget was set/removed, or if it meets threshold
+            if 'set to' in details or 'removed' in details or pct_change >= min_budget_pct:
+                show_annotation = True
+                color = '#f59e0b'  # Orange for budget
+        
+        elif change_type == 'Bid Strategy Change':
+            # Always show if strategy type completely changed
+            if 'Strategy changed' in details:
+                show_annotation = True
+            else:
+                # Check percentage threshold for target adjustments
+                pct_change = extract_percentage_change(details)
+                if pct_change >= min_bid_pct:
+                    show_annotation = True
+            color = '#8b5cf6'  # Purple for bid strategy
+        
+        if not show_annotation:
+            continue
+        
+        # Add vertical dashed line
+        shapes.append(dict(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=change_date,
+            x1=change_date,
+            y0=0,
+            y1=1,
+            line=dict(color=color, width=2, dash="dot"),
+            opacity=0.6
+        ))
+        
+        # Add annotation with arrow
+        # Truncate details if too long
+        short_details = details[:40] + "..." if len(details) > 40 else details
+        
+        annotations.append(dict(
+            x=change_date,
+            y=1.02,
+            xref="x",
+            yref="paper",
+            text=f"<b>{change_type.split()[0]}</b><br>{short_details}",
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor=color,
+            ax=0,
+            ay=-50,
+            bgcolor="rgba(255, 255, 255, 0.9)",
+            bordercolor=color,
+            borderwidth=2,
+            borderpad=4,
+            font=dict(size=9, color="#111827"),
+            align="center"
+        ))
+    
+    # Update figure with annotations
+    fig.update_layout(
+        shapes=shapes,
+        annotations=annotations
+    )
+    
+    return fig
+
 def calculate_comparison(current_df, comparison_df):
     """Calculate percentage changes between two dataframes"""
     if comparison_df.empty:
@@ -914,6 +1151,7 @@ def main():
                         
                         # Fetch comparison data if needed
                         comparison_df = pd.DataFrame()
+                        daily_comparison_df = pd.DataFrame()
                         if compare_option != "None":
                             days_diff = (end_date - start_date).days
                             
@@ -940,6 +1178,14 @@ def main():
                                 comp_end
                             )
                             
+                            # Fetch daily comparison data for charts
+                            daily_comparison_df = fetch_daily_performance(
+                                st.session_state.client,
+                                st.session_state.customer_id,
+                                comp_start,
+                                comp_end
+                            )
+                            
                             if not comparison_df.empty:
                                 comparison_df = process_dataframe(comparison_df)
                         
@@ -948,6 +1194,7 @@ def main():
                             'comparison': comparison_df,
                             'compare_option': compare_option
                         }
+                        st.session_state.daily_data_comparison = daily_comparison_df
                         st.session_state.data_loaded = True
                         st.success("✅ Data loaded successfully!")
                     else:
@@ -1098,47 +1345,65 @@ def main():
                     st.markdown("---")
                     st.subheader("📈 Performance Over Time")
                     
-                    daily_data = st.session_state.daily_data
+                    daily_data = st.session_state.daily_data.copy()
+                    daily_data_comp = st.session_state.daily_data_comparison if st.session_state.daily_data_comparison is not None else pd.DataFrame()
                     
                     # Filter daily data by campaign if needed
                     if campaign_filter and campaign_filter.strip():
                         if exact_match:
                             daily_data = daily_data[daily_data['campaign_name'] == campaign_filter.strip()]
+                            if not daily_data_comp.empty:
+                                daily_data_comp = daily_data_comp[daily_data_comp['campaign_name'] == campaign_filter.strip()]
                         else:
                             daily_data = daily_data[daily_data['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
+                            if not daily_data_comp.empty:
+                                daily_data_comp = daily_data_comp[daily_data_comp['campaign_name'].str.contains(campaign_filter, case=False, na=False)]
                     
                     if not daily_data.empty:
-                        # Metric selector
-                        col1, col2 = st.columns([3, 1])
+                        # Multi-metric selector (up to 3 metrics)
+                        metric_options = {
+                            'cost': 'Cost',
+                            'clicks': 'Clicks',
+                            'impressions': 'Impressions',
+                            'conversions': 'Conversions',
+                            'conversions_value': 'Conversion Value',
+                            'ctr': 'CTR (%)',
+                            'cpc': 'CPC',
+                            'conv_value_cost': 'Conv Value/Cost',
+                            'cost_per_conv': 'Cost per Conversion',
+                            'aov': 'Average Order Value'
+                        }
                         
-                        with col1:
-                            metric_options = {
-                                'cost': 'Cost',
-                                'clicks': 'Clicks',
-                                'impressions': 'Impressions',
-                                'conversions': 'Conversions',
-                                'conversions_value': 'Conversion Value',
-                                'ctr': 'CTR (%)',
-                                'cpc': 'CPC',
-                                'conv_value_cost': 'Conv Value/Cost',
-                                'cost_per_conv': 'Cost per Conversion',
-                                'aov': 'Average Order Value'
-                            }
-                            
-                            selected_metric = st.selectbox(
-                                "Select Metric to Visualize",
-                                options=list(metric_options.keys()),
-                                format_func=lambda x: metric_options[x],
-                                key="agg_metric_selector"
-                            )
-                        
-                        # Create and display chart
-                        fig = create_time_series_chart(
-                            daily_data,
-                            selected_metric,
-                            metric_options[selected_metric]
+                        selected_metrics = st.multiselect(
+                            "Select up to 3 metrics to visualize",
+                            options=list(metric_options.keys()),
+                            default=['cost', 'conversions'],
+                            max_selections=3,
+                            format_func=lambda x: metric_options[x],
+                            key="agg_metrics_selector"
                         )
-                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        if not selected_metrics:
+                            st.warning("Please select at least one metric to visualize")
+                        else:
+                            # Show comparison toggle if comparison data exists
+                            show_comparison = False
+                            if compare_opt != "None" and not daily_data_comp.empty:
+                                show_comparison = st.checkbox(
+                                    f"Show comparison with {compare_opt}",
+                                    value=True,
+                                    key="agg_show_comparison"
+                                )
+                            
+                            # Create and display multi-metric chart
+                            fig = create_multi_metric_chart(
+                                daily_data,
+                                daily_data_comp if show_comparison else None,
+                                selected_metrics,
+                                metric_options,
+                                show_comparison
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.info("No daily data available for the selected campaign filter.")
         
@@ -1208,11 +1473,20 @@ def main():
                         end_date_camp
                     )
                     
+                    # Fetch change history for the date range
+                    change_history_df = fetch_change_history(
+                        st.session_state.client,
+                        st.session_state.customer_id,
+                        start_date_camp,
+                        end_date_camp
+                    )
+                    
                     if not campaign_df.empty:
                         campaign_df = process_dataframe(campaign_df)
                         
                         # Fetch comparison if needed
                         comparison_df = pd.DataFrame()
+                        daily_comparison_df_camp = pd.DataFrame()
                         if compare_option_camp != "None":
                             days_diff = (end_date_camp - start_date_camp).days
                             
@@ -1233,6 +1507,14 @@ def main():
                                 comp_end = compare_end_camp
                             
                             comparison_df = fetch_campaign_performance(
+                                st.session_state.client,
+                                st.session_state.customer_id,
+                                comp_start,
+                                comp_end
+                            )
+                            
+                            # Fetch daily comparison data
+                            daily_comparison_df_camp = fetch_daily_performance(
                                 st.session_state.client,
                                 st.session_state.customer_id,
                                 comp_start,
@@ -1266,6 +1548,9 @@ def main():
                         
                         st.session_state.campaign_data = campaign_df
                         st.session_state.daily_data_camp = daily_df_camp
+                        st.session_state.daily_data_camp_comparison = daily_comparison_df_camp
+                        st.session_state.change_history_data = change_history_df
+                        st.session_state.compare_option_camp = compare_option_camp
                         st.success("✅ Campaign data loaded!")
             
             # Display campaign table
@@ -1321,17 +1606,67 @@ def main():
                         st.markdown("---")
                         st.subheader("📈 Campaign Performance Over Time")
                         
-                        daily_data_camp = st.session_state.daily_data_camp
+                        daily_data_camp = st.session_state.daily_data_camp.copy()
+                        daily_data_camp_comp = st.session_state.daily_data_camp_comparison if hasattr(st.session_state, 'daily_data_camp_comparison') and st.session_state.daily_data_camp_comparison is not None else pd.DataFrame()
                         
                         # Filter by campaign if needed
+                        filtered_daily_camp = daily_data_camp.copy()
+                        filtered_daily_camp_comp = daily_data_camp_comp.copy() if not daily_data_camp_comp.empty else pd.DataFrame()
+                        
                         if campaign_filter_camp and campaign_filter_camp.strip():
                             if exact_match_camp:
-                                daily_data_camp = daily_data_camp[daily_data_camp['campaign_name'] == campaign_filter_camp.strip()]
+                                filtered_daily_camp = filtered_daily_camp[filtered_daily_camp['campaign_name'] == campaign_filter_camp.strip()]
+                                if not filtered_daily_camp_comp.empty:
+                                    filtered_daily_camp_comp = filtered_daily_camp_comp[filtered_daily_camp_comp['campaign_name'] == campaign_filter_camp.strip()]
                             else:
-                                daily_data_camp = daily_data_camp[daily_data_camp['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
+                                filtered_daily_camp = filtered_daily_camp[filtered_daily_camp['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
+                                if not filtered_daily_camp_comp.empty:
+                                    filtered_daily_camp_comp = filtered_daily_camp_comp[filtered_daily_camp_comp['campaign_name'].str.contains(campaign_filter_camp, case=False, na=False)]
                         
-                        if not daily_data_camp.empty:
-                            # Metric selector
+                        if not filtered_daily_camp.empty:
+                            # Check if single campaign selected for change history annotations
+                            unique_campaigns = filtered_daily_camp['campaign_name'].unique()
+                            single_campaign_selected = len(unique_campaigns) == 1
+                            
+                            if single_campaign_selected:
+                                campaign_name_for_annotations = unique_campaigns[0]
+                                
+                                # Show info about change history annotations
+                                st.info(f"📍 Viewing single campaign: **{campaign_name_for_annotations}**. Change history markers will be shown on the chart below. Strategy type changes (e.g., Manual CPC → Target CPA) are always displayed.")
+                                
+                                # Change threshold filters
+                                st.markdown("##### Change History Filters")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    min_budget_change = st.slider(
+                                        "Minimum Budget Change % to Show",
+                                        min_value=0,
+                                        max_value=100,
+                                        value=10,
+                                        step=5,
+                                        help="Only show budget changes above this percentage. Budget creation/removal always shown.",
+                                        key="camp_min_budget_change"
+                                    )
+                                
+                                with col2:
+                                    min_bid_change = st.slider(
+                                        "Minimum Bid Strategy Change % to Show",
+                                        min_value=0,
+                                        max_value=100,
+                                        value=10,
+                                        step=5,
+                                        help="Only show bid strategy target changes above this percentage. Complete strategy type changes always shown.",
+                                        key="camp_min_bid_change"
+                                    )
+                            else:
+                                if campaign_filter_camp and campaign_filter_camp.strip():
+                                    st.warning(f"📊 Change history annotations are only available when viewing a single campaign. Currently viewing {len(unique_campaigns)} campaigns. Use exact match filter to select one campaign.")
+                                else:
+                                    st.info("💡 To see change history markers on the chart, filter to a single campaign using the campaign name filter above.")
+                            
+                            # Multi-metric selector
+                            st.markdown("##### Select Metrics")
                             metric_options = {
                                 'cost': 'Cost',
                                 'clicks': 'Clicks',
@@ -1345,20 +1680,62 @@ def main():
                                 'aov': 'Average Order Value'
                             }
                             
-                            selected_metric_camp = st.selectbox(
-                                "Select Metric to Visualize",
+                            selected_metrics_camp = st.multiselect(
+                                "Select up to 3 metrics to visualize",
                                 options=list(metric_options.keys()),
+                                default=['cost', 'conversions'],
+                                max_selections=3,
                                 format_func=lambda x: metric_options[x],
-                                key="camp_metric_selector"
+                                key="camp_metrics_selector"
                             )
                             
-                            # Create and display chart
-                            fig = create_time_series_chart(
-                                daily_data_camp,
-                                selected_metric_camp,
-                                metric_options[selected_metric_camp]
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
+                            if not selected_metrics_camp:
+                                st.warning("Please select at least one metric to visualize")
+                            else:
+                                # Show comparison toggle if comparison data exists
+                                show_comparison_camp = False
+                                compare_opt_camp = st.session_state.get('compare_option_camp', 'None')
+                                if compare_opt_camp != "None" and not filtered_daily_camp_comp.empty:
+                                    show_comparison_camp = st.checkbox(
+                                        f"Show comparison with {compare_opt_camp}",
+                                        value=True,
+                                        key="camp_show_comparison"
+                                    )
+                                
+                                # Create multi-metric chart
+                                fig = create_multi_metric_chart(
+                                    filtered_daily_camp,
+                                    filtered_daily_camp_comp if show_comparison_camp else None,
+                                    selected_metrics_camp,
+                                    metric_options,
+                                    show_comparison_camp
+                                )
+                                
+                                # Add change history annotations if single campaign selected
+                                if single_campaign_selected and st.session_state.change_history_data is not None:
+                                    date_range = (start_date_camp, end_date_camp)
+                                    fig = add_change_annotations(
+                                        fig,
+                                        st.session_state.change_history_data,
+                                        campaign_name_for_annotations,
+                                        date_range,
+                                        min_budget_change if single_campaign_selected else 0,
+                                        min_bid_change if single_campaign_selected else 0
+                                    )
+                                
+                                st.plotly_chart(fig, use_container_width=True)
+                                
+                                # Show change history table for this campaign if single campaign selected
+                                if single_campaign_selected and st.session_state.change_history_data is not None:
+                                    campaign_changes = st.session_state.change_history_data[
+                                        st.session_state.change_history_data['campaign_name'] == campaign_name_for_annotations
+                                    ]
+                                    
+                                    if not campaign_changes.empty:
+                                        with st.expander(f"📋 View {len(campaign_changes)} change(s) for this campaign"):
+                                            display_changes = campaign_changes[['date', 'time', 'change_type', 'change_details']].copy()
+                                            display_changes.columns = ['Date', 'Time', 'Change Type', 'Details']
+                                            st.dataframe(display_changes, use_container_width=True)
         
         # Tab 3: Product Breakdown
         with tabs[3]:
