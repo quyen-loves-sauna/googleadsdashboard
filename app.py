@@ -782,18 +782,26 @@ def create_multi_metric_chart(df_current, df_comparison, selected_metrics, metri
     layout_config = {
         'title': dict(
             text="Performance Over Time",
-            font=dict(size=20, color='#111827')
+            font=dict(size=24, color='#111827', family='Arial, sans-serif', weight=700)
         ),
         'xaxis': dict(
-            title="Date",
-            showgrid=True,
-            gridcolor='rgba(200, 200, 200, 0.2)'
-        ),
-        'yaxis': dict(
-            title=metric_labels[selected_metrics[0]],
+            title=dict(
+                text="Date",
+                font=dict(size=16, color='#374151', weight=600)
+            ),
             showgrid=True,
             gridcolor='rgba(200, 200, 200, 0.2)',
-            side='left'
+            tickfont=dict(size=13)
+        ),
+        'yaxis': dict(
+            title=dict(
+                text=metric_labels[selected_metrics[0]],
+                font=dict(size=16, color='#374151', weight=600)
+            ),
+            showgrid=True,
+            gridcolor='rgba(200, 200, 200, 0.2)',
+            side='left',
+            tickfont=dict(size=13)
         ),
         'plot_bgcolor': 'white',
         'paper_bgcolor': 'white',
@@ -805,7 +813,7 @@ def create_multi_metric_chart(df_current, df_comparison, selected_metrics, metri
             y=-0.25,
             xanchor="center",
             x=0.5,
-            font=dict(size=11)
+            font=dict(size=13, weight=600)
         ),
         'margin': dict(l=60, r=60, t=80, b=100)
     }
@@ -813,20 +821,28 @@ def create_multi_metric_chart(df_current, df_comparison, selected_metrics, metri
     # Add secondary y-axes for additional metrics
     if len(selected_metrics) > 1:
         layout_config['yaxis2'] = dict(
-            title=metric_labels[selected_metrics[1]],
+            title=dict(
+                text=metric_labels[selected_metrics[1]],
+                font=dict(size=16, color='#374151', weight=600)
+            ),
             overlaying='y',
             side='right',
-            showgrid=False
+            showgrid=False,
+            tickfont=dict(size=13)
         )
     
     if len(selected_metrics) > 2:
         layout_config['yaxis3'] = dict(
-            title=metric_labels[selected_metrics[2]],
+            title=dict(
+                text=metric_labels[selected_metrics[2]],
+                font=dict(size=16, color='#374151', weight=600)
+            ),
             overlaying='y',
             side='right',
             anchor='free',
             position=0.97,
-            showgrid=False
+            showgrid=False,
+            tickfont=dict(size=13)
         )
     
     fig.update_layout(**layout_config)
@@ -1934,7 +1950,35 @@ def main():
                         # Calculate aggregates
                         total_spend_delta = df_display['spend_delta_3d'].mean()
                         total_revenue_delta = df_display['revenue_delta_3d'].mean()
-                        avg_delta_ratio = df_display['delta_ratio_3d'].mean()
+                        
+                        # Calculate delta ratio correctly from portfolio-level deltas
+                        if abs(total_spend_delta) > 0.1:
+                            avg_delta_ratio = total_revenue_delta / total_spend_delta
+                        else:
+                            avg_delta_ratio = 0
+                        
+                        # Determine if performance is good based on delta directions
+                        # Best case: spend down, revenue up (ratio is negative but performance is excellent)
+                        # Good case: both up, revenue faster (ratio > 1)
+                        # Warning: spend up faster than revenue (ratio < 1)
+                        # Bad: spend up, revenue down (ratio is negative and bad)
+                        
+                        if total_spend_delta < 0 and total_revenue_delta > 0:
+                            # Spend decreased, revenue increased - EXCELLENT
+                            performance_good = True
+                            ratio_interpretation = "✅ Optimal efficiency (lower spend, higher revenue)"
+                        elif total_spend_delta > 0 and total_revenue_delta < 0:
+                            # Spend increased, revenue decreased - TERRIBLE
+                            performance_good = False
+                            ratio_interpretation = "🚨 Critical issue (higher spend, lower revenue)"
+                        elif avg_delta_ratio >= 1:
+                            # Both same sign, revenue growing faster
+                            performance_good = True
+                            ratio_interpretation = "✅ Revenue growing faster"
+                        else:
+                            # Both same sign, spend growing faster
+                            performance_good = False
+                            ratio_interpretation = "⚠️ Monitor closely"
                         
                         col1, col2, col3 = st.columns(3)
                         
@@ -1969,7 +2013,7 @@ def main():
                             """, unsafe_allow_html=True)
                         
                         with col3:
-                            ratio_color = "#059669" if avg_delta_ratio >= 1 else "#9ca3af"
+                            ratio_color = "#059669" if performance_good else "#dc2626"
                             st.markdown(f"""
                             <div style="background: white; padding: 16px; border-radius: 8px; 
                                         box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: 1px solid #e5e7eb;">
@@ -1977,10 +2021,10 @@ def main():
                                     AVG DELTA RATIO (3D)
                                 </div>
                                 <div style="font-size: 24px; font-weight: 700; color: {ratio_color};">
-                                    {avg_delta_ratio:.2f}x
+                                    {abs(avg_delta_ratio):.2f}x
                                 </div>
-                                <div style="font-size: 11px; color: #9ca3af; margin-top: 4px;">
-                                    {"✅ Revenue growing faster" if avg_delta_ratio >= 1 else "⚠️ Monitor closely"}
+                                <div style="font-size: 14px; font-weight: 600; color: {ratio_color}; margin-top: 4px;">
+                                    {ratio_interpretation}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -2005,8 +2049,67 @@ def main():
                         'Delta Ratio 3D': 'Δ Ratio'
                     })
                     
+                    # Apply styling with conditional formatting
+                    def color_soc_sor_ratio(val):
+                        """Green if < 1, Red if > 1, Grey if = 1"""
+                        try:
+                            if val < 1.0:
+                                return 'background-color: #d1fae5; color: #065f46'  # Green
+                            elif val > 1.0:
+                                return 'background-color: #fee2e2; color: #991b1b'  # Red
+                            else:
+                                return 'background-color: #f3f4f6; color: #6b7280'  # Grey
+                        except:
+                            return ''
+                    
+                    def color_delta_ratio(val):
+                        """Green if positive, Red if negative"""
+                        try:
+                            if val > 0.1:
+                                return 'background-color: #d1fae5; color: #065f46'  # Green
+                            elif val < -0.1:
+                                return 'background-color: #fee2e2; color: #991b1b'  # Red
+                            else:
+                                return 'background-color: #f3f4f6; color: #6b7280'  # Grey
+                        except:
+                            return ''
+                    
+                    # Apply conditional formatting
+                    styled_df = df_display_table.style.applymap(
+                        color_soc_sor_ratio,
+                        subset=['SoC/SoR'] if 'SoC/SoR' in df_display_table.columns else []
+                    ).applymap(
+                        color_delta_ratio,
+                        subset=['Δ Ratio'] if 'Δ Ratio' in df_display_table.columns else []
+                    ).set_properties(**{
+                        'font-weight': 'bold',
+                        'background-color': '#f9fafb',
+                        'border': '1px solid #e5e7eb'
+                    }, subset=df_display_table.columns[:1]  # Bold first column (Campaign)
+                    ).set_table_styles([
+                        {'selector': 'thead th', 'props': [
+                            ('background-color', '#1f2937'),
+                            ('color', 'white'),
+                            ('font-weight', 'bold'),
+                            ('font-size', '14px'),
+                            ('text-align', 'center'),
+                            ('padding', '12px'),
+                            ('border', '1px solid #374151')
+                        ]},
+                        {'selector': 'tbody td', 'props': [
+                            ('padding', '10px'),
+                            ('border', '1px solid #e5e7eb'),
+                            ('text-align', 'right')
+                        ]},
+                        {'selector': 'tbody tr:hover', 'props': [
+                            ('background-color', '#f3f4f6')
+                        ]}
+                    ]).format({
+                        col: '{:.2f}' for col in df_display_table.select_dtypes(include=['float64']).columns
+                    })
+                    
                     st.dataframe(
-                        df_display_table,
+                        styled_df,
                         use_container_width=True,
                         height=600
                     )
@@ -2429,8 +2532,52 @@ def main():
                     'Soc Sor Ratio': 'SoC/SoR'
                 })
                 
+                # Apply styling with conditional formatting
+                def color_soc_sor_ratio(val):
+                    """Green if < 1, Red if > 1, Grey if = 1"""
+                    try:
+                        if val < 1.0:
+                            return 'background-color: #d1fae5; color: #065f46'  # Green
+                        elif val > 1.0:
+                            return 'background-color: #fee2e2; color: #991b1b'  # Red
+                        else:
+                            return 'background-color: #f3f4f6; color: #6b7280'  # Grey
+                    except:
+                        return ''
+                
+                # Apply conditional formatting
+                styled_df_prod = df_display.style.applymap(
+                    color_soc_sor_ratio,
+                    subset=['SoC/SoR'] if 'SoC/SoR' in df_display.columns else []
+                ).set_properties(**{
+                    'font-weight': 'bold',
+                    'background-color': '#f9fafb',
+                    'border': '1px solid #e5e7eb'
+                }, subset=df_display.columns[:1]  # Bold first column (Product)
+                ).set_table_styles([
+                    {'selector': 'thead th', 'props': [
+                        ('background-color', '#1f2937'),
+                        ('color', 'white'),
+                        ('font-weight', 'bold'),
+                        ('font-size', '14px'),
+                        ('text-align', 'center'),
+                        ('padding', '12px'),
+                        ('border', '1px solid #374151')
+                    ]},
+                    {'selector': 'tbody td', 'props': [
+                        ('padding', '10px'),
+                        ('border', '1px solid #e5e7eb'),
+                        ('text-align', 'right')
+                    ]},
+                    {'selector': 'tbody tr:hover', 'props': [
+                        ('background-color', '#f3f4f6')
+                    ]}
+                ]).format({
+                    col: '{:.2f}' for col in df_display.select_dtypes(include=['float64']).columns
+                })
+                
                 st.dataframe(
-                    df_display,
+                    styled_df_prod,
                     use_container_width=True,
                     height=600
                 )
