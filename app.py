@@ -945,36 +945,54 @@ def display_metric_card(label, value, change=None, metric_type='currency', inver
 # Main App
 def main():
     
-    # Custom CSS for bigger tabs
+    # Custom CSS for BIGGER tabs
     st.markdown("""
     <style>
-    /* Make tabs bigger and more prominent */
+    /* Force tabs to be much bigger */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 16px;
-        padding: 16px 0;
-        margin-bottom: 24px;
-        margin-top: -10px;
+        gap: 24px !important;
+        padding: 20px 0 !important;
+        margin-bottom: 30px !important;
     }
     
     .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 16px 28px;
-        font-weight: 600;
-        font-size: 17px;
-        border: none;
-        background-color: transparent;
-        color: #6b7280;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: #eff6ff;
-        color: #1e40af;
-        font-size: 18px;
-        font-weight: 700;
+        padding: 20px 40px !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
     }
     
     .stTabs [data-baseweb="tab"]:hover {
-        background-color: #f3f4f6;
+        background-color: #f3f4f6 !important;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #eff6ff !important;
+        color: #1e40af !important;
+        font-size: 22px !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Also target the button element inside */
+    .stTabs button {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+    }
+    
+    .stTabs button[aria-selected="true"] {
+        font-size: 22px !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Target paragraph text inside tabs */
+    .stTabs [data-baseweb="tab"] p {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+    }
+    
+    .stTabs [aria-selected="true"] p {
+        font-size: 22px !important;
+        font-weight: 700 !important;
     }
     </style>
     """, unsafe_allow_html=True)
